@@ -99,25 +99,47 @@ class WeatherApp:
         self.font_size_large = not self.font_size_large
         self.apply_theme()
 
-    def show_graphs(self):
-        graph_win = tk.Toplevel(self.root)
-        graph_win.title("Sensor Trends")
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(5, 7))
-        fig.tight_layout(pad=4.0)
-        
-        ax1.plot(self.history["temp"], color='red', label='BME')
-        ax1.plot(self.history["probe"], color='blue', label='Probe')
-        ax1.set_title("Temperature History (°C)")
-        ax1.legend()
+ def show_graphs(self):
+        """Pop-up window for data visualization with explicit drawing"""
+        try:
+            if not self.history["temp"]:
+                print("No data collected yet to graph!")
+                return
 
-        ax2.plot(self.history["dust"], color='green', label='PM2.5')
-        ax2.set_title("Dust Levels (µg/m³)")
-        ax2.legend()
+            graph_win = tk.Toplevel(self.root)
+            graph_win.title("Live Sensor Trends")
+            graph_win.geometry("600x600")
+            graph_win.configure(bg="white")
+            
+            # Use a clean figure
+            fig = plt.figure(figsize=(5, 6), dpi=100)
+            ax1 = fig.add_subplot(211)
+            ax2 = fig.add_subplot(212)
+            
+            fig.tight_layout(pad=5.0)
+            
+            # Plot Temperature
+            ax1.plot(self.history["temp"], color='red', marker='o', label='BME')
+            ax1.plot(self.history["probe"], color='blue', marker='x', label='Probe')
+            ax1.set_title("Temperature History (°C)")
+            ax1.set_ylabel("Celsius")
+            ax1.legend()
+            ax1.grid(True)
 
-        canvas = FigureCanvasTkAgg(fig, master=graph_win)
-        canvas.draw()
-        canvas.get_tk_widget().pack()
+            # Plot Dust
+            ax2.plot(self.history["dust"], color='green', label='PM2.5')
+            ax2.set_title("Dust Levels (µg/m³)")
+            ax2.set_ylabel("micrograms")
+            ax2.legend()
+            ax2.grid(True)
 
+            # Link the plot to the Tkinter window
+            canvas = FigureCanvasTkAgg(fig, master=graph_win)
+            canvas.draw()
+            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+            
+        except Exception as e:
+            print(f"Graphing Error: {e}")
     def update_loop(self):
         # 1. BME280 Update (Non-Adafruit logic)
         if self.bme_enabled:
