@@ -6,18 +6,18 @@ from pms5003 import PMS5003
 from w1thermsensor import W1ThermSensor
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import time
 
 class WeatherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("WeatherMaster Pro - BME280 Module Edition")
-        self.root.geometry("600x850")
+        self.root.title("WeatherMaster Pro - Live Graph Edition")
+        self.root.geometry("700x900")
         
-        # --- Accessibility & Data States ---
+        # --- Settings & Data ---
         self.high_contrast = False
         self.font_size_large = False
-        self.history = {"temp": [], "dust": [], "probe": []}
+        # Fill with 30 zeros so the graph starts immediately
+        self.history = {"temp": [0]*30, "dust": [0]*30, "probe": [0]*30}
         self.display_labels = {}
 
         self.init_hardware()
@@ -25,156 +25,111 @@ class WeatherApp:
         self.update_loop()
 
     def init_hardware(self):
-        """Initialize sensors using smbus2 and bme280 module"""
-        # 1. BME280 (Standard Module)
+        # BME280 (Standard Module - Address 0x77)
         try:
-            self.port = 1
-            self.address = 0x77  # Your specific sensor address
-            self.bus = smbus2.SMBus(self.port)
-            self.calibration_params = bme280.load_calibration_params(self.bus, self.address)
-            print("BME280: Connected via smbus2 (0x77)")
+            self.bus = smbus2.SMBus(1)
+            self.address = 0x77
+            self.calib = bme280.load_calibration_params(self.bus, self.address)
             self.bme_enabled = True
-        except Exception as e:
+        except:
             self.bme_enabled = False
-            print(f"BME280: Not Found ({e})")
+            print("BME280: Not Found")
 
-        # 2. PMS5003 (Dust Sensor)
+        # PMS5003
         try:
             self.pms = PMS5003(device='/dev/serial0', baudrate=9600)
-            print("PMS5003: Connected")
-        except Exception as e:
+        except:
             self.pms = None
-            print(f"PMS5003: Not Found")
 
-        # 3. DS18B20 (Probe)
+        # DS18B20
         try:
             self.probe = W1ThermSensor()
-            print("DS18B20: Connected")
-        except Exception as e:
+        except:
             self.probe = None
-            print(f"DS18B20: Not Found")
 
     def setup_gui(self):
-        self.main_frame = tk.Frame(self.root)
+        self.main_frame = tk.Frame(self.root, bg="#1a1a2e")
         self.main_frame.pack(expand=True, fill="both")
-        self.apply_theme()
 
-    def apply_theme(self):
-        bg_col = "#000000" if self.high_contrast else "#1a1a2e"
-        box_default = "#ffffff" if self.high_contrast else "#f1c40f"
-        txt_col = "#000000" if self.high_contrast else "#1a1a2e"
-        
-        self.main_frame.configure(bg=bg_col)
-        for widget in self.main_frame.winfo_children():
-            widget.destroy()
+        # Title
+        tk.Label(self.main_frame, text="LIVE WEATHER STATION", font=("Arial", 24, "bold"), 
+                 bg="#1a1a2e", fg="white").pack(pady=10)
 
-        tk.Label(self.main_frame, text="WEATHER STATION", font=("Arial", 28, "bold"), 
-                 bg=bg_col, fg="white").pack(pady=20)
+        # Data Boxes
+        self.data_container = tk.Frame(self.main_frame, bg="#1a1a2e")
+        self.data_container.pack(fill="x", padx=20)
 
-        ctrl_frame = tk.Frame(self.main_frame, bg=bg_col)
-        ctrl_frame.pack(pady=10)
-        tk.Button(ctrl_frame, text="CONTRAST (C)", command=self.toggle_contrast).grid(row=0, column=0, padx=10)
-        tk.Button(ctrl_frame, text="ZOOM (+/-)", command=self.toggle_zoom).grid(row=0, column=1, padx=10)
-
-        font_size = 26 if self.font_size_large else 18
-        items = [("BME Temp", "°C"), ("Humidity", "%"), ("Pressure", "hPa"), 
-                 ("Dust (PM2.5)", "µg/m³"), ("Probe Temp", "°C")]
-
+        items = [("BME Temp", "°C"), ("Dust (PM2.5)", "µg/m³"), ("Probe Temp", "°C")]
         for name, unit in items:
-            row_frame = tk.Frame(self.main_frame, bg=box_default)
-            row_frame.pack(pady=8, fill="x", padx=40)
-            lbl = tk.Label(row_frame, text=f"{name}: -- {unit}", font=("Arial", font_size, "bold"), 
-                           bg=box_default, fg=txt_col)
-            lbl.pack(pady=15)
+            f = tk.Frame(self.data_container, bg="#f1c40f", bd=2)
+            f.pack(pady=5, fill="x")
+            lbl = tk.Label(f, text=f"{name}: -- {unit}", font=("Arial", 16, "bold"), bg="#f1c40f")
+            lbl.pack(pady=10)
             self.display_labels[name] = lbl
 
-        tk.Button(self.main_frame, text="📊 VIEW LIVE GRAPHS", font=("Arial", 16, "bold"),
-                  bg="#27ae60", fg="white", command=self.show_graphs).pack(pady=30, fill="x", padx=60)
+        # --- THE LIVE GRAPH ---
+        # Creating the figure and the axes (subplots)
+        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(5, 4), facecolor='#1a1a2e')
+        self.fig.tight_layout(pad=3.0)
+        
+        # Style the graphs
+        for ax in [self.ax1, self.ax2]:
+            ax.set_facecolor('#1a1a2e')
+            ax.tick_params(colors='white', labelsize=8)
+            for spine in ax.spines.values():
+                spine.set_color('white')
 
-    def toggle_contrast(self):
-        self.high_contrast = not self.high_contrast
-        self.apply_theme()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
+        self.canvas.get_tk_widget().pack(pady=10, fill="both", expand=True)
 
-    def toggle_zoom(self):
-        self.font_size_large = not self.font_size_large
-        self.apply_theme()
-
- def show_graphs(self):
-        """Pop-up window for data visualization with explicit drawing"""
-        try:
-            if not self.history["temp"]:
-                print("No data collected yet to graph!")
-                return
-
-            graph_win = tk.Toplevel(self.root)
-            graph_win.title("Live Sensor Trends")
-            graph_win.geometry("600x600")
-            graph_win.configure(bg="white")
-            
-            # Use a clean figure
-            fig = plt.figure(figsize=(5, 6), dpi=100)
-            ax1 = fig.add_subplot(211)
-            ax2 = fig.add_subplot(212)
-            
-            fig.tight_layout(pad=5.0)
-            
-            # Plot Temperature
-            ax1.plot(self.history["temp"], color='red', marker='o', label='BME')
-            ax1.plot(self.history["probe"], color='blue', marker='x', label='Probe')
-            ax1.set_title("Temperature History (°C)")
-            ax1.set_ylabel("Celsius")
-            ax1.legend()
-            ax1.grid(True)
-
-            # Plot Dust
-            ax2.plot(self.history["dust"], color='green', label='PM2.5')
-            ax2.set_title("Dust Levels (µg/m³)")
-            ax2.set_ylabel("micrograms")
-            ax2.legend()
-            ax2.grid(True)
-
-            # Link the plot to the Tkinter window
-            canvas = FigureCanvasTkAgg(fig, master=graph_win)
-            canvas.draw()
-            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-            
-        except Exception as e:
-            print(f"Graphing Error: {e}")
     def update_loop(self):
-        # 1. BME280 Update (Non-Adafruit logic)
+        # 1. Read BME
         if self.bme_enabled:
             try:
-                data = bme280.sample(self.bus, self.address, self.calibration_params)
-                t, h, p = round(data.temperature, 1), round(data.humidity, 1), int(data.pressure)
-                
-                t_color = "#2ecc71" if 18 <= t <= 25 else "#e74c3c"
-                self.display_labels["BME Temp"].config(text=f"BME Temp: {t}°C")
-                self.display_labels["BME Temp"].master.config(bg=t_color)
-                self.display_labels["Humidity"].config(text=f"Humidity: {h}%")
-                self.display_labels["Pressure"].config(text=f"Pressure: {p} hPa")
+                data = bme280.sample(self.bus, self.address, self.calib)
+                t = round(data.temperature, 1)
                 self.history["temp"].append(t)
+                self.display_labels["BME Temp"].config(text=f"BME Temp: {t}°C")
+                # Health Alert Color
+                bg = "#2ecc71" if 18 <= t <= 26 else "#e74c3c"
+                self.display_labels["BME Temp"].master.config(bg=bg)
+                self.display_labels["BME Temp"].config(bg=bg)
             except: pass
 
-        # 2. PMS5003 Update
+        # 2. Read Dust
         if self.pms:
             try:
                 d = self.pms.read().pm25_standard
-                d_color = "#2ecc71" if d <= 12 else "#f1c40f" if d <= 35 else "#e74c3c"
-                self.display_labels["Dust (PM2.5)"].config(text=f"Dust: {d} µg/m³")
-                self.display_labels["Dust (PM2.5)"].master.config(bg=d_color)
                 self.history["dust"].append(d)
+                self.display_labels["Dust (PM2.5)"].config(text=f"Dust: {d} µg/m³")
+                bg = "#2ecc71" if d <= 12 else "#f1c40f" if d <= 35 else "#e74c3c"
+                self.display_labels["Dust (PM2.5)"].master.config(bg=bg)
+                self.display_labels["Dust (PM2.5)"].config(bg=bg)
             except: pass
 
-        # 3. DS18B20 Update
+        # 3. Read Probe
         if self.probe:
             try:
                 pt = round(self.probe.get_temperature(), 1)
-                self.display_labels["Probe Temp"].config(text=f"Probe: {pt}°C")
                 self.history["probe"].append(pt)
+                self.display_labels["Probe Temp"].config(text=f"Probe: {pt}°C")
             except: pass
 
+        # Maintain list length
         for k in self.history:
             if len(self.history[k]) > 30: self.history[k].pop(0)
+
+        # --- REFRESH THE GRAPH ---
+        self.ax1.clear()
+        self.ax1.set_title("Temperature (°C)", color="white", fontsize=10)
+        self.ax1.plot(self.history["temp"], color="#e74c3c", label="BME")
+        self.ax1.plot(self.history["probe"], color="#3498db", label="Probe")
+        
+        self.ax2.clear()
+        self.ax2.set_title("Dust (µg/m³)", color="white", fontsize=10)
+        self.ax2.plot(self.history["dust"], color="#2ecc71")
+        
+        self.canvas.draw()
 
         self.root.after(3000, self.update_loop)
 
