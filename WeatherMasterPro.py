@@ -10,14 +10,18 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 class WeatherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("WeatherMaster Pro - Live Graph Edition")
+        self.root.title("WeatherMaster Custom Pro")
         self.root.geometry("700x900")
         
-        # --- Settings & Data ---
-        self.high_contrast = False
-        self.font_size_large = False
-        # Fill with 30 zeros so the graph starts immediately
-        self.history = {"temp": [0]*30, "dust": [0]*30, "probe": [0]*30}
+        # Colors from your request
+        self.color_bg = "#2c3592"
+        self.color_text = "#a3a3a3"
+        self.color_box = "#108340"
+        self.color_line1 = "#ffcf11" # Yellow
+        self.color_line2 = "#108340" # Green
+
+        # Data State - 20 points for faster-looking movement
+        self.history = {"temp": [0]*20, "dust": [0]*20, "probe": [0]*20}
         self.display_labels = {}
 
         self.init_hardware()
@@ -25,7 +29,6 @@ class WeatherApp:
         self.update_loop()
 
     def init_hardware(self):
-        # BME280 (Standard Module - Address 0x77)
         try:
             self.bus = smbus2.SMBus(1)
             self.address = 0x77
@@ -33,51 +36,44 @@ class WeatherApp:
             self.bme_enabled = True
         except:
             self.bme_enabled = False
-            print("BME280: Not Found")
-
-        # PMS5003
-        try:
-            self.pms = PMS5003(device='/dev/serial0', baudrate=9600)
-        except:
-            self.pms = None
-
-        # DS18B20
-        try:
-            self.probe = W1ThermSensor()
-        except:
-            self.probe = None
+        
+        try: self.pms = PMS5003(device='/dev/serial0', baudrate=9600)
+        except: self.pms = None
+            
+        try: self.probe = W1ThermSensor()
+        except: self.probe = None
 
     def setup_gui(self):
-        self.main_frame = tk.Frame(self.root, bg="#1a1a2e")
+        self.main_frame = tk.Frame(self.root, bg=self.color_bg)
         self.main_frame.pack(expand=True, fill="both")
 
         # Title
-        tk.Label(self.main_frame, text="LIVE WEATHER STATION", font=("Arial", 24, "bold"), 
-                 bg="#1a1a2e", fg="white").pack(pady=10)
+        tk.Label(self.main_frame, text="WEATHER STATION", font=("Arial", 24, "bold"), 
+                 bg=self.color_bg, fg=self.color_text).pack(pady=10)
 
-        # Data Boxes
-        self.data_container = tk.Frame(self.main_frame, bg="#1a1a2e")
+        # Data Boxes (Rectangles)
+        self.data_container = tk.Frame(self.main_frame, bg=self.color_bg)
         self.data_container.pack(fill="x", padx=20)
 
         items = [("BME Temp", "°C"), ("Dust (PM2.5)", "µg/m³"), ("Probe Temp", "°C")]
         for name, unit in items:
-            f = tk.Frame(self.data_container, bg="#f1c40f", bd=2)
-            f.pack(pady=5, fill="x")
-            lbl = tk.Label(f, text=f"{name}: -- {unit}", font=("Arial", 16, "bold"), bg="#f1c40f")
-            lbl.pack(pady=10)
+            # We use highlightthickness to simulate a border/rounded look in standard Tkinter
+            f = tk.Frame(self.data_container, bg=self.color_box, bd=0, padx=10, pady=10)
+            f.pack(pady=8, fill="x")
+            lbl = tk.Label(f, text=f"{name}: -- {unit}", font=("Arial", 18, "bold"), 
+                           bg=self.color_box, fg=self.color_text)
+            lbl.pack()
             self.display_labels[name] = lbl
 
         # --- THE LIVE GRAPH ---
-        # Creating the figure and the axes (subplots)
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(5, 4), facecolor='#1a1a2e')
+        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(5, 4), facecolor=self.color_bg)
         self.fig.tight_layout(pad=3.0)
         
-        # Style the graphs
         for ax in [self.ax1, self.ax2]:
-            ax.set_facecolor('#1a1a2e')
-            ax.tick_params(colors='white', labelsize=8)
+            ax.set_facecolor(self.color_bg)
+            ax.tick_params(colors=self.color_text, labelsize=8)
             for spine in ax.spines.values():
-                spine.set_color('white')
+                spine.set_color(self.color_text)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas.get_tk_widget().pack(pady=10, fill="both", expand=True)
@@ -90,10 +86,6 @@ class WeatherApp:
                 t = round(data.temperature, 1)
                 self.history["temp"].append(t)
                 self.display_labels["BME Temp"].config(text=f"BME Temp: {t}°C")
-                # Health Alert Color
-                bg = "#2ecc71" if 18 <= t <= 26 else "#e74c3c"
-                self.display_labels["BME Temp"].master.config(bg=bg)
-                self.display_labels["BME Temp"].config(bg=bg)
             except: pass
 
         # 2. Read Dust
@@ -102,9 +94,6 @@ class WeatherApp:
                 d = self.pms.read().pm25_standard
                 self.history["dust"].append(d)
                 self.display_labels["Dust (PM2.5)"].config(text=f"Dust: {d} µg/m³")
-                bg = "#2ecc71" if d <= 12 else "#f1c40f" if d <= 35 else "#e74c3c"
-                self.display_labels["Dust (PM2.5)"].master.config(bg=bg)
-                self.display_labels["Dust (PM2.5)"].config(bg=bg)
             except: pass
 
         # 3. Read Probe
@@ -115,23 +104,25 @@ class WeatherApp:
                 self.display_labels["Probe Temp"].config(text=f"Probe: {pt}°C")
             except: pass
 
-        # Maintain list length
+        # Maintain 20 points for faster visual flow
         for k in self.history:
-            if len(self.history[k]) > 30: self.history[k].pop(0)
+            if len(self.history[k]) > 20: self.history[k].pop(0)
 
-        # --- REFRESH THE GRAPH ---
+        # --- REFRESH GRAPH WITH CUSTOM LINE COLORS ---
         self.ax1.clear()
-        self.ax1.set_title("Temperature (°C)", color="white", fontsize=10)
-        self.ax1.plot(self.history["temp"], color="#e74c3c", label="BME")
-        self.ax1.plot(self.history["probe"], color="#3498db", label="Probe")
+        self.ax1.set_title("Temperature History", color=self.color_text)
+        self.ax1.plot(self.history["temp"], color=self.color_line1, label="BME", linewidth=2)
+        self.ax1.plot(self.history["probe"], color=self.color_line2, label="Probe", linewidth=2)
+        self.ax1.legend(facecolor=self.color_bg, labelcolor=self.color_text, fontsize='x-small')
         
         self.ax2.clear()
-        self.ax2.set_title("Dust (µg/m³)", color="white", fontsize=10)
-        self.ax2.plot(self.history["dust"], color="#2ecc71")
+        self.ax2.set_title("Dust Levels", color=self.color_text)
+        self.ax2.plot(self.history["dust"], color=self.color_line1, linewidth=2)
         
         self.canvas.draw()
 
-        self.root.after(3000, self.update_loop)
+        # SPEED: Updated to 1000ms (1 second)
+        self.root.after(1000, self.update_loop)
 
 if __name__ == "__main__":
     root = tk.Tk()
